@@ -1,0 +1,16 @@
+mcp.example.com {
+	tls {
+		issuer acme {
+			disable_tlsalpn_challenge
+		}
+	}
+	@mcp path_regexp mcp ^/(ssh|kgmail|git|ponytail|github-dev|github|gdrive|context7|playwright|task360)/mcp$
+	handle @mcp {
+		reverse_proxy 127.0.0.1:18781 {
+			flush_interval -1
+		}
+	}
+	handle {
+		respond "Not found" 404
+	}
+}
