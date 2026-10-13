@@ -1,0 +1,17 @@
+[Unit]
+Description=Forward Flow MCP bridge
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/azureuser
+Environment=PATH=/home/azureuser/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/node /home/azureuser/.local/share/forward-flow-mcp-bridge/runtime/node_modules/supergateway/dist/index.js --config /home/azureuser/.config/forward-flow-mcp-bridge/servers.json
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+KillMode=control-group
+UMask=0077
+
+[Install]
+WantedBy=default.target

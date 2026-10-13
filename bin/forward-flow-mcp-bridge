@@ -1,0 +1,55 @@
+#!/usr/bin/env python3
+import json
+import os
+from pathlib import Path
+import secrets
+import subprocess
+import sys
+import tempfile
+
+ROOT = Path.home() / '.config/forward-flow-mcp-bridge'
+GATEWAY = Path.home() / '.local/share/forward-flow-mcp-bridge/runtime/node_modules/supergateway/dist/index.js'
+PORT = 18781
+
+def private_json(path, data):
+    fd, temporary = tempfile.mkstemp(prefix='.'+path.name, dir=path.parent)
+    try:
+        with os.fdopen(fd, 'w') as output:
+            json.dump(data, output, indent=2)
+            output.write('\n')
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary): os.unlink(temporary)
+
+def refresh():
+    ROOT.mkdir(parents=True, exist_ok=True)
+    ROOT.chmod(0o700)
+    servers = {}
+    for path in [Path.home()/'.config/mcp-sync/global.json', Path.home()/'.claude.json']:
+        if not path.exists(): continue
+        data = json.loads(path.read_text())
+        for name, connection in data.get('mcpServers',data.get('mcp_servers',{})).items():
+            if name in servers or not connection.get('command'): continue
+            if not name or len(name)>18 or any(not (c.isascii() and (c.isalnum() or c=='-')) for c in name):
+                raise RuntimeError('Unsupported server name: '+name)
+            servers[name] = {key:connection[key] for key in ['command','args','env','cwd'] if key in connection}
+    if not servers: raise RuntimeError('No command MCP servers found')
+    token_path = ROOT/'token'
+    if not token_path.exists():
+        fd = os.open(token_path, os.O_WRONLY|os.O_CREAT|os.O_EXCL, 0o600)
+        with os.fdopen(fd,'w') as output: output.write(secrets.token_urlsafe(32)+'\n')
+    config={'host':'127.0.0.1','port':PORT,'outputTransport':'streamableHttp','stateful':True,'sessionTimeout':60000,'apiKeyFile':str(token_path),'logLevel':'none','mcpServers':servers}
+    private_json(ROOT/'servers.json',config)
+    subprocess.run(['/usr/bin/node',str(GATEWAY),'--config',str(ROOT/'servers.json'),'--checkConfig'],check=True)
+    token=token_path.read_text().strip()
+    portable={'version':1,'mcp_servers':{name:{'id':name,'url':f'https://mcp.example.com/{name}/mcp','token':token,'enabled':False} for name in servers}}
+    private_json(ROOT/'forward-flow-config.json',portable)
+    print(f'Prepared {len(servers)} MCP servers')
+
+command=sys.argv[1] if len(sys.argv)>1 else 'status'
+if command=='refresh': refresh()
+elif command in ['start','stop','restart','status']:
+    subprocess.run(['systemctl','--user',command,'forward-flow-mcp-bridge.service'],check=True)
+else: raise SystemExit('Use refresh, start, stop, restart, or status')
